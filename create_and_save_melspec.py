@@ -54,7 +54,7 @@ def create_and_save_melspec(train_folders: list[str],
 
                 # Extract a fixed-length window from the middle of the audio
                 start_idx = int(len(y) / 2 - 2.5 * sample_rate)
-                end_idx = int(start_idx + 5.0 * sample_rate)
+                end_idx = int(start_idx + window_in_seconds * sample_rate)
                 y = y[start_idx:end_idx]
 
                 melspec = librosa.feature.melspectrogram(y=y, sr=sr, fmin=min_freq, fmax=max_freq, n_mels=n_mels, n_fft=n_fft)
