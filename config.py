@@ -1,27 +1,40 @@
-import torch
-
-class Config:
+class SpectrogramConfig:
     def __init__(self):
         # Spectrogram calculation parameters
-        self.nfft = 1024
+        self.n_fft = 1024
         self.num_fold = 5
         self.window_duration_in_sec = 5
         self.n_mels = 128 
-        self.width = 256
-        
+
+class DataConfig:
+    def __init__(self):
         # Data parameters
         self.max_time = 5
         self.sample_rate = 32000
         self.audio_length = self.max_time * self.sample_rate
-        self.min_frequency = 0
+        self.min_frequency = 60
         self.max_frequency = 16000
 
+class ModelConfig:
+    def __init__(self):
         # Model parameters
         self.model_name = 'tf_efficientnetv2_s.in21k'
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.batch_size = 32
-        self.epochs = 10
-        self.learning_rate = 5e-4
+        self.inference_chunks_number = 48
+        self.epochs = 30
+        self.learning_rate = 1e-3
         self.num_classes = 182
 
-        self.metadata = '/home/asphodel/Code/ml-dl-env/birdclef2024-competition/labels-2024.csv'
+class OptimizerConfig:
+    def __init__(self):
+        # Optimizer parameters
+        self.eta_min = 1e-6
+
+class Config(SpectrogramConfig, DataConfig, ModelConfig, OptimizerConfig):
+    def __init__(self):
+        SpectrogramConfig.__init__(self)
+        DataConfig.__init__(self)
+        ModelConfig.__init__(self)
+        OptimizerConfig.__init__(self)
+
+        self.metadata = '/home/asphodel/Code/ml-dl-env/past_years_metadata.csv'
