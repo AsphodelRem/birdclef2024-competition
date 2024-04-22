@@ -7,16 +7,16 @@ from torch.utils.data import Dataset
 
 from config import Config
 
+
 class BirdCLEFDataset(Dataset):
-    def __init__(self, data, path_to_data: str, config: Config, valid=False):
+    def __init__(self, data, path_to_data: str, config: Config):
         super().__init__()
+
         self.path_to_data = path_to_data
         self.data = data
         self.config = config
-        self.audio_length = self.config.sample_rate * self.config.window_duration_in_sec
-        self.valid = valid
         
-    def make_melspec(self, audio_data):
+    def _make_melspec(self, audio_data):
         melspec = librosa.feature.melspectrogram(
             y=audio_data, sr=self.config.sample_rate, n_mels=self.config.n_mels, 
             fmin=self.config.min_frequency, fmax=self.config.max_frequency,
@@ -24,7 +24,7 @@ class BirdCLEFDataset(Dataset):
 
         return librosa.power_to_db(melspec).astype(np.float32)
     
-    def mono_to_color(self, data, eps=1e-6, mean=None, std=None):
+    def _mono_to_color(self, data, eps=1e-6, mean=None, std=None):
         mean = mean or data.mean()
         std = std or data.std()
         data = (data - mean) / (std + eps)
@@ -41,34 +41,19 @@ class BirdCLEFDataset(Dataset):
         image = np.stack([image, image, image], axis=0)
         return image
     
-    def audio_to_image(self, audio):
-        image = self.mono_to_color(audio)
+    def _audio_to_image(self, audio):
+        image = self._mono_to_color(audio)
         return torch.tensor(image, dtype=torch.float32)
 
     def read_data(self, row):
-        path = os.path.join(self.path_to_data, row['path'])
+        path = os.path.join(self.path_to_data, row['filename'])
         path = path.split('.')[0]
         path += '.npy'
 
         audio = np.load(path)
-        
-        if self.valid:
-            audios = []
-            for i in range(self.audio_length, len(audio) + self.audio_length, self.audio_length):
-                start = max(0, i - self.audio_length)
-                end = start + self.audio_length
-                audios.append(audio[start:end])
 
-            if len(audios[-1]) < self.audio_length:
-                audios = audios[:-1]
-
-            images = [self.audio_to_image(audio) for audio in audios]
-            images = np.stack(images)
-            
-        else:
-            images = self.audio_to_image(audio)  
-
-        labels = torch.tensor(row[2:]).float()
+        images = self._audio_to_image(audio)  
+        labels = torch.tensor(list(row)[2:]).float()
         
         return images, labels
     
