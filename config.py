@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 class SpectrogramConfig:
     def __init__(self):
         # Spectrogram calculation parameters
@@ -18,7 +21,6 @@ class DataConfig:
 class ModelConfig:
     def __init__(self):
         # Model parameters
-        self.model_name = 'tf_efficientnetv2_s.in21k'
         self.batch_size = 32
         self.inference_chunks_number = 48
         self.epochs = 30
@@ -37,4 +39,6 @@ class Config(SpectrogramConfig, DataConfig, ModelConfig, OptimizerConfig):
         ModelConfig.__init__(self)
         OptimizerConfig.__init__(self)
 
-        self.metadata = '/home/asphodel/Code/ml-dl-env/past_years_metadata.csv'
+        self.path_to_data = '/home/asphodel/Downloads/melspecs'
+        self.metadata = '/home/asphodel/Code/dl-env/birdclef2024-competition/this_year_only_metadata.csv'
+        self.labels = list(pd.read_csv(self.metadata)['primary_label'].unique())

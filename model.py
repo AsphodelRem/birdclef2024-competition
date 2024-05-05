@@ -1,6 +1,3 @@
-import os
-import librosa
-import numpy as np
 import pandas as pd
 
 import lightning as L
@@ -10,8 +7,10 @@ import torch.nn as nn
 from torch.optim import AdamW, Adam
 import torch.nn.functional as F
 import torchmetrics
+from torchvision.models import efficientnet, EfficientNet_B1_Weights
 
-import timm
+import pandas as pd
+
 from config import Config
 
 
@@ -23,23 +22,24 @@ class ModelUtils:
         class_weights = {}
         for label in unique_labels:
             count = (primary_labels == label).sum() 
-            class_weight = total_samples / (len(unique_labels) * count)
+            class_weight = count / total_samples
             class_weights[label] = class_weight
-        return torch.tensor(list(class_weights.values()))
-
+        return torch.tensor(list(class_weights.values())).pow(-0.5)
+    
 class BirdCLEFModel(L.LightningModule):
     def __init__(self, config: Config):
         super(BirdCLEFModel, self).__init__()
         self.config = config
         self.model = self._create_model()
         self.metadata = pd.read_csv(self.config.metadata)
-        self.weights = None # ModelUtils.compute_class_weights(self.metadata['primary_label'])
-        self.criterion = nn.CrossEntropyLoss(weight=self.weights)
+        self.weights = ModelUtils.compute_class_weights(self.metadata['primary_label'])
+        self.criterion = nn.CrossEntropyLoss(self.weights)
 
-        self.f1 = torchmetrics.F1Score(task='binary', num_classes=self.config.num_classes, average='macro')
-        self.precision = torchmetrics.Precision(task='binary', num_classes=self.config.num_classes, average='macro')
-        self.recall = torchmetrics.Recall(task='binary', num_classes=self.config.num_classes, average='macro')
+        self.f1 = torchmetrics.F1Score(task='multiclass', num_classes=self.config.num_classes, average='macro')
+        self.precision = torchmetrics.Precision(task='multiclass', num_classes=self.config.num_classes, average='macro')
+        self.recall = torchmetrics.Recall(task='multiclass', num_classes=self.config.num_classes, average='macro')
 
+        torch.set_float32_matmul_precision('high')
         self.save_hyperparameters()
     
     # TODO: Add loading from a checkpoint
@@ -47,8 +47,8 @@ class BirdCLEFModel(L.LightningModule):
         self.config = new_config
 
     def _create_model(self):
-        model = timm.create_model(self.config.model_name, pretrained=True)
-        model.classifier = torch.nn.Linear(model.num_features, self.config.num_classes)
+        model = efficientnet.efficientnet_b1(weights=EfficientNet_B1_Weights.IMAGENET1K_V2)
+        model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, self.config.num_classes)
         return model
 
     def forward(self, x):
@@ -56,16 +56,17 @@ class BirdCLEFModel(L.LightningModule):
 
     def step(self, batch, stage: str):
         x, y = batch
+        x = x.unsqueeze(1).expand(-1, 3, -1, -1)
+
         predict = self.model(x)
         loss = self.criterion(predict, y)
 
-        precision = self.precision(predict, y)
-        recall = self.recall(predict, y)
-        f1 = self.f1(predict, y)
+        predicted_classes = torch.argmax(F.softmax(predict, dim=1), dim=1)
+        ground_truth = torch.argmax(y, dim=1)
 
+        f1 = self.f1(predicted_classes, ground_truth)
+   
         self.log(f'{stage}_loss', loss, prog_bar=True)
-        self.log(f'{stage}_precision', precision, prog_bar=True)
-        self.log(f'{stage}_recall', recall, prog_bar=True)
         self.log(f'{stage}_f1', f1, prog_bar=True)
 
         return loss
@@ -80,7 +81,7 @@ class BirdCLEFModel(L.LightningModule):
         self.step(batch, 'val')
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config.learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=1e-5)
         lr_scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=self.config.epochs, T_mult=1, eta_min=1e-6, last_epoch=-1)
         return {
             'optimizer': optimizer, 
@@ -91,3 +92,4 @@ class BirdCLEFModel(L.LightningModule):
                 'frequency': 1
                 }
             }
+

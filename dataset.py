@@ -2,33 +2,29 @@ import os
 import librosa
 import numpy as np
 
+import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
 from config import Config
+from augmentation import frequency_domain_augmentations as FDA
 
-
-class BirdCLEFDataset(Dataset):
-    def __init__(self, data, path_to_data: str, config: Config):
-        super().__init__()
-
-        self.path_to_data = path_to_data
-        self.data = data
-        self.config = config
-        
-    def _make_melspec(self, audio_data):
+class DatasetUtils:
+    @staticmethod
+    def make_melspectogram(audio_data, config: Config):
         melspec = librosa.feature.melspectrogram(
-            y=audio_data, sr=self.config.sample_rate, n_mels=self.config.n_mels, 
-            fmin=self.config.min_frequency, fmax=self.config.max_frequency,
+            y=audio_data, sr=config.sample_rate, n_mels=config.n_mels, 
+            fmin=config.min_frequency, fmax=config.max_frequency,
         )
 
         return librosa.power_to_db(melspec).astype(np.float32)
     
-    def _mono_to_color(self, data, eps=1e-6, mean=None, std=None):
-        mean = mean or data.mean()
-        std = std or data.std()
+    @staticmethod
+    def convert_to_colored_image(data, eps=1e-6):
+        mean = data.mean()
+        std = data.std()
+
         data = (data - mean) / (std + eps)
-        
         _min, _max = data.min(), data.max()
 
         if (_max - _min) > eps:
@@ -38,27 +34,43 @@ class BirdCLEFDataset(Dataset):
         else:
             image = np.zeros_like(data, dtype=np.uint8)
             
-        image = np.stack([image, image, image], axis=0)
         return image
     
-    def _audio_to_image(self, audio):
-        image = self._mono_to_color(audio)
-        return torch.tensor(image, dtype=torch.float32)
-
-    def read_data(self, row):
-        path = os.path.join(self.path_to_data, row['filename'])
+    @staticmethod
+    def prepare_data(row: pd.DataFrame, config: Config) -> tuple[torch.Tensor, torch.Tensor]:
+        path = os.path.join(config.path_to_data, row['filename'])
         path = path.split('.')[0]
         path += '.npy'
 
-        audio = np.load(path)
-
-        images = self._audio_to_image(audio)  
+        mel_spectogram = np.load(path)
         labels = torch.tensor(list(row)[2:]).float()
-        
-        return images, labels
+
+        return mel_spectogram, labels
+
+
+class BirdCLEFDataset(Dataset):
+    def __init__(self, data, config: Config, augmentations=None):
+        super().__init__()
+        self.data = data
+        self.config = config
+        self.augmentations = augmentations 
     
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self, idx):
-        return self.read_data(self.data.loc[idx])
+        data, labels = DatasetUtils.prepare_data(self.data.loc[idx], self.config)
+        data = DatasetUtils.convert_to_colored_image(data)
+
+        if self.augmentations:
+            data = self.augmentations(image=data)['image']
+       
+            # Use mix up here
+            if np.random.uniform(0, 1) < 0.3:
+                random_sample_idx = np.random.randint(0, len(self.data))
+                new_data, new_label = DatasetUtils.prepare_data(self.data.loc[random_sample_idx], self.config)
+                new_data = self.augmentations(image=new_data)['image']
+                data, labels = FDA.mix_up(data, labels, new_data, new_label)
+
+        return torch.tensor(data, dtype=torch.float32), labels
+    
