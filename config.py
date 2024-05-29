@@ -1,44 +1,48 @@
 import pandas as pd
+import toml
 
+def get_labels_from_metadata(metadata_path):
+    return list(pd.read_csv(metadata_path)['primary_label'].unique())
 
-class SpectrogramConfig:
-    def __init__(self):
-        # Spectrogram calculation parameters
-        self.n_fft = 1024
-        self.num_fold = 5
-        self.window_duration_in_sec = 5
-        self.n_mels = 128 
+def create_default_config():
+    config = {
+        "spectrogram_parameters": {
+            "n_fft": 1024,
+            "num_fold": 5,
+            "window_duration_in_sec": 5,
+            "n_mels": 128
+        },
+        "data_parameters": {
+            "max_time": 5,
+            "sample_rate": 32000,
+            "audio_length": 5 * 32000,
+            "min_frequency": 60,
+            "max_frequency": 16000
+        },
+        "model_parameters": {
+            "model_name" : "efficientnet_b2",
+            "batch_size": 32,
+            "inference_chunks_number": 48,
+            "epochs": 30,
+            "learning_rate": 6e-4,
+            "num_classes": 182
+        },
+        "optimizer_parameters": {
+            "eta_min": 1e-6
+        },
+        "meta_parameters": {
+            "path_to_data": "/workspace/birdclef/melspecs",
+            "metadata": "/workspace/birdclef/labels/this_year_only_metadata.csv"
+        }
+    }
+    return config
 
-class DataConfig:
-    def __init__(self):
-        # Data parameters
-        self.max_time = 5
-        self.sample_rate = 32000
-        self.audio_length = self.max_time * self.sample_rate
-        self.min_frequency = 60
-        self.max_frequency = 16000
+def save_config(config, filename):
+    with open(filename, 'w') as f:
+        toml.dump(config, f)
 
-class ModelConfig:
-    def __init__(self):
-        # Model parameters
-        self.batch_size = 32
-        self.inference_chunks_number = 48
-        self.epochs = 30
-        self.learning_rate = 1e-3
-        self.num_classes = 182
-
-class OptimizerConfig:
-    def __init__(self):
-        # Optimizer parameters
-        self.eta_min = 1e-6
-
-class Config(SpectrogramConfig, DataConfig, ModelConfig, OptimizerConfig):
-    def __init__(self):
-        SpectrogramConfig.__init__(self)
-        DataConfig.__init__(self)
-        ModelConfig.__init__(self)
-        OptimizerConfig.__init__(self)
-
-        self.path_to_data = '/home/asphodel/Downloads/melspecs'
-        self.metadata = '/home/asphodel/Code/dl-env/birdclef2024-competition/this_year_only_metadata.csv'
-        self.labels = list(pd.read_csv(self.metadata)['primary_label'].unique())
+def load_config(filename):
+    with open(filename, 'r') as f:
+        config = toml.load(f)
+    # config['paths']['labels'] = get_labels_from_metadata(config['paths']['metadata'])
+    return config

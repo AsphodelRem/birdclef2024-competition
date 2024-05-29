@@ -1,17 +1,14 @@
 import pandas as pd
-
 import lightning as L
 import torch
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn as nn
-from torch.optim import AdamW, Adam
+from torch.optim import Adam
 import torch.nn.functional as F
 import torchmetrics
-from torchvision.models import efficientnet, EfficientNet_B1_Weights
-
-import pandas as pd
-
-from config import Config
+from torchvision.models import resnet152
+import timm
+import toml
 
 
 class ModelUtils:
@@ -27,29 +24,25 @@ class ModelUtils:
         return torch.tensor(list(class_weights.values())).pow(-0.5)
     
 class BirdCLEFModel(L.LightningModule):
-    def __init__(self, config: Config):
+    def __init__(self, current_config):
         super(BirdCLEFModel, self).__init__()
-        self.config = config
+        self.current_config = current_config
         self.model = self._create_model()
-        self.metadata = pd.read_csv(self.config.metadata)
+        self.metadata = pd.read_csv(self.current_config['meta_parameters']['metadata'])
         self.weights = ModelUtils.compute_class_weights(self.metadata['primary_label'])
         self.criterion = nn.CrossEntropyLoss(self.weights)
 
-        self.f1 = torchmetrics.F1Score(task='multiclass', num_classes=self.config.num_classes, average='macro')
-        self.precision = torchmetrics.Precision(task='multiclass', num_classes=self.config.num_classes, average='macro')
-        self.recall = torchmetrics.Recall(task='multiclass', num_classes=self.config.num_classes, average='macro')
+        self.f1 = torchmetrics.F1Score(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
+        self.precision = torchmetrics.Precision(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
+        self.recall = torchmetrics.Recall(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
 
         torch.set_float32_matmul_precision('high')
-        self.save_hyperparameters()
-    
-    # TODO: Add loading from a checkpoint
-    def update_model(self, new_config: Config, checkpoint: str=None):
-        self.config = new_config
+        self.save_hyperparameters()   
 
     def _create_model(self):
-        model = efficientnet.efficientnet_b1(weights=EfficientNet_B1_Weights.IMAGENET1K_V2)
-        model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, self.config.num_classes)
-        return model
+        model = timm.create_model(self.current_config['model_parameters']['model_name'], pretrained=True)
+        model.classifier = torch.nn.Linear(model.classifier.in_features, self.current_config['model_parameters']['num_classes'])
+        return model 
 
     def forward(self, x):
         return self.model(x)
@@ -81,8 +74,8 @@ class BirdCLEFModel(L.LightningModule):
         self.step(batch, 'val')
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=1e-5)
-        lr_scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=self.config.epochs, T_mult=1, eta_min=1e-6, last_epoch=-1)
+        optimizer = Adam(self.parameters(), lr=self.current_config['model_parameters']['learning_rate'], weight_decay=5e-5)
+        lr_scheduler = CosineAnnealingLR(optimizer, T_max=self.current_config['model_parameters']['epochs'], eta_min=1e-6, last_epoch=-1)
         return {
             'optimizer': optimizer, 
             'lr_scheduler': {
@@ -90,6 +83,5 @@ class BirdCLEFModel(L.LightningModule):
                 'interval': 'epoch', 
                 'monitor': 'val_loss', 
                 'frequency': 1
-                }
             }
-
+        }
