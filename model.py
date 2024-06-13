@@ -3,10 +3,9 @@ import lightning as L
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 import torch.nn.functional as F
 import torchmetrics
-from torchvision.models import resnet152
 import timm
 import toml
 
@@ -32,16 +31,21 @@ class BirdCLEFModel(L.LightningModule):
         self.weights = ModelUtils.compute_class_weights(self.metadata['primary_label'])
         self.criterion = nn.CrossEntropyLoss(self.weights)
 
-        self.f1 = torchmetrics.F1Score(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
-        self.precision = torchmetrics.Precision(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
-        self.recall = torchmetrics.Recall(task='multiclass', num_classes=self.current_config['model_parameters']['num_classes'], average='macro')
+        self.f1 = torchmetrics.F1Score(
+            task='multiclass', 
+            num_classes=self.current_config['model_parameters']['num_classes'],
+            average='macro'
+        )
 
         torch.set_float32_matmul_precision('high')
         self.save_hyperparameters()   
 
     def _create_model(self):
-        model = timm.create_model(self.current_config['model_parameters']['model_name'], pretrained=True)
-        model.classifier = torch.nn.Linear(model.classifier.in_features, self.current_config['model_parameters']['num_classes'])
+        model = timm.create_model(
+            self.current_config['model_parameters']['model_name'], 
+            pretrained=True, 
+            num_classes=self.current_config['model_parameters']['num_classes']
+        )
         return model 
 
     def forward(self, x):
@@ -74,8 +78,17 @@ class BirdCLEFModel(L.LightningModule):
         self.step(batch, 'val')
 
     def configure_optimizers(self):
-        optimizer = Adam(self.parameters(), lr=self.current_config['model_parameters']['learning_rate'], weight_decay=5e-5)
-        lr_scheduler = CosineAnnealingLR(optimizer, T_max=self.current_config['model_parameters']['epochs'], eta_min=1e-6, last_epoch=-1)
+        optimizer = AdamW(
+            self.parameters(),
+            lr=self.current_config['model_parameters']['learning_rate'],
+            weight_decay=self.current_config['optimizer_parameters']['weight_decay']
+        )
+        lr_scheduler = CosineAnnealingLR(
+            optimizer, 
+            T_max=self.current_config['model_parameters']['epochs'],
+            eta_min=self.current_config['optimizer_parameters']["eta_min"], 
+            last_epoch=-1
+        )
         return {
             'optimizer': optimizer, 
             'lr_scheduler': {
